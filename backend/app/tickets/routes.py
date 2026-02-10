@@ -1,13 +1,11 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session, joinedload
 
 from backend.app.core.deps import get_db
 from backend.app.core.auth_deps import get_current_user
-from backend.app.tickets.models import Ticket
+from backend.app.tickets.models import Ticket, TicketAIMetadata, TicketStatus
 from backend.app.tickets.schemas import TicketCreate, TicketResponse
 from backend.app.ai.triage import run_ai_triage
-from backend.app.tickets.models import TicketAIMetadata
-
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -22,6 +20,7 @@ def create_ticket(
         title=ticket.title,
         description=ticket.description,
         category=ticket.category,
+        status=TicketStatus.PENDING_AGENT,
         created_by=current_user["user_id"]
     )
 
@@ -29,7 +28,7 @@ def create_ticket(
     db.commit()
     db.refresh(new_ticket)
 
-    # ---- AI TRIAGE START ----
+    # ---- AI TRIAGE ----
     ai_data = run_ai_triage(ticket.title, ticket.description)
 
     ai_meta = TicketAIMetadata(
@@ -39,7 +38,6 @@ def create_ticket(
 
     db.add(ai_meta)
     db.commit()
-    # ---- AI TRIAGE END ----
 
     return new_ticket
 
@@ -49,13 +47,13 @@ def get_my_tickets(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    tickets = db.query(Ticket).filter(
-        Ticket.created_by == current_user["user_id"]
-    ).all()
+    return (
+        db.query(Ticket)
+        .options(joinedload(Ticket.ai_metadata))
+        .filter(Ticket.created_by == current_user["user_id"])
+        .all()
+    )
 
-    return tickets
-
-from fastapi import HTTPException
 
 @router.get("/all", response_model=list[TicketResponse])
 def get_all_tickets(
@@ -65,6 +63,8 @@ def get_all_tickets(
     if current_user["role"] != "AGENT":
         raise HTTPException(status_code=403, detail="Not authorized")
 
-
-    tickets = db.query(Ticket).all()
-    return tickets
+    return (
+        db.query(Ticket)
+        .options(joinedload(Ticket.ai_metadata))
+        .all()
+    )

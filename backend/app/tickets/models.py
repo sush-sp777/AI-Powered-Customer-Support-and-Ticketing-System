@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -50,8 +50,14 @@ class Ticket(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey
-from backend.app.core.database import Base
+    # ✅ relationship
+    ai_metadata = relationship(
+        "TicketAIMetadata",
+        back_populates="ticket",
+        uselist=False,
+        cascade="all, delete"
+    )
+
 
 class TicketAIMetadata(Base):
     __tablename__ = "ticket_ai_metadata"
@@ -65,3 +71,5 @@ class TicketAIMetadata(Base):
     confidence = Column(Float)
     risk = Column(String)
     ai_summary = Column(String)
+
+    ticket = relationship("Ticket", back_populates="ai_metadata")
