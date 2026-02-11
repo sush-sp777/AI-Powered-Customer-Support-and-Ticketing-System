@@ -3,7 +3,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.app.core.deps import get_db
 from backend.app.core.auth_deps import get_current_user
-from backend.app.tickets.models import Ticket, TicketAIMetadata, TicketStatus
+from backend.app.tickets.models import (
+    Ticket,
+    TicketAIMetadata,
+    TicketStatus
+)
 from backend.app.tickets.schemas import TicketCreate, TicketResponse
 from backend.app.ai.triage import run_ai_triage
 
@@ -16,11 +20,12 @@ def create_ticket(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    # 1️⃣ Create ticket (initially OPEN)
     new_ticket = Ticket(
         title=ticket.title,
         description=ticket.description,
         category=ticket.category,
-        status=TicketStatus.PENDING_AGENT,
+        status=TicketStatus.OPEN,
         created_by=current_user["user_id"]
     )
 
@@ -28,16 +33,25 @@ def create_ticket(
     db.commit()
     db.refresh(new_ticket)
 
-    # ---- AI TRIAGE ----
+    # 2️⃣ Run AI Triage
     ai_data = run_ai_triage(ticket.title, ticket.description)
 
+    # 3️⃣ Save AI metadata
     ai_meta = TicketAIMetadata(
         ticket_id=new_ticket.id,
         **ai_data
     )
 
     db.add(ai_meta)
+
+    # 4️⃣ Decision Engine
+    if ai_data["confidence"] >= 0.85 and ai_data["risk"] == "LOW":
+        new_ticket.status = TicketStatus.AUTO_RESOLVED
+    else:
+        new_ticket.status = TicketStatus.PENDING_AGENT
+
     db.commit()
+    db.refresh(new_ticket)
 
     return new_ticket
 
