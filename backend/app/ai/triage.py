@@ -1,38 +1,68 @@
+import os
+import json
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, SystemMessage
+from dotenv import load_dotenv
+load_dotenv()
+
+# Initialize LLM
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",  # fast + good reasoning
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0
+)
+
+
 def run_ai_triage(title: str, description: str):
-    text = f"{title} {description}".lower()
+    """
+    Uses LLM to analyze ticket and return structured triage metadata.
+    """
 
-    # CATEGORY
-    if "password" in text or "login" in text:
-        category = "AUTH"
-    elif "payment" in text or "refund" in text:
-        category = "BILLING"
-    else:
-        category = "GENERAL"
+    system_prompt = """
+You are an AI support triage engine.
 
-    # PRIORITY
-    if "urgent" in text or "immediately" in text:
-        priority = "HIGH"
-    else:
-        priority = "MEDIUM"
+Analyze the support ticket and respond ONLY in valid JSON.
 
-    # SENTIMENT
-    if "angry" in text or "frustrated" in text:
-        sentiment = "NEGATIVE"
-    else:
-        sentiment = "NEUTRAL"
+Return:
+{
+  "category": "BILLING | TECHNICAL | ACCOUNT | GENERAL",
+  "priority": "LOW | MEDIUM | HIGH | URGENT",
+  "sentiment": "POSITIVE | NEUTRAL | NEGATIVE",
+  "confidence": float between 0 and 1,
+  "risk": "LOW | MEDIUM | HIGH",
+  "ai_summary": "short 1-line summary"
+}
 
-    # RISK
-    risk = "HIGH" if category == "BILLING" else "LOW"
+Rules:
+- Billing/payment/refund → BILLING
+- Login/password/account access → ACCOUNT
+- System bug/error/crash → TECHNICAL
+- General query → GENERAL
+- Angry/frustrated tone → HIGH risk
+- Calm tone → LOW risk
+Return ONLY JSON. No explanation.
+"""
 
-    confidence = 0.85 if category != "GENERAL" else 0.6
+    user_prompt = f"""
+Title: {title}
+Description: {description}
+"""
 
-    ai_summary = f"Detected {category} issue with {priority} priority."
+    response = llm.invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt)
+    ])
 
-    return {
-        "category": category,
-        "priority": priority,
-        "sentiment": sentiment,
-        "confidence": confidence,
-        "risk": risk,
-        "ai_summary": ai_summary
-    }
+    try:
+        parsed = json.loads(response.content)
+        return parsed
+    except Exception:
+        # fallback in case model outputs bad JSON
+        return {
+            "category": "GENERAL",
+            "priority": "MEDIUM",
+            "sentiment": "NEUTRAL",
+            "confidence": 0.5,
+            "risk": "LOW",
+            "ai_summary": "AI parsing failed."
+        }
