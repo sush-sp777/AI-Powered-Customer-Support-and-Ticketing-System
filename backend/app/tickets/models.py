@@ -73,3 +73,21 @@ class TicketAIMetadata(Base):
     ai_summary = Column(String)
 
     ticket = relationship("Ticket", back_populates="ai_metadata")
+
+from sqlalchemy import Boolean
+from sqlalchemy.orm import relationship
+
+class TicketMessage(Base):
+    __tablename__ = "ticket_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=False)
+
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    sender_role = Column(String, nullable=False)  # USER / AGENT / AI
+
+    message = Column(Text, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Ticket", backref="messages")

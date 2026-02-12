@@ -10,6 +10,9 @@ from backend.app.tickets.models import (
 )
 from backend.app.tickets.schemas import TicketCreate, TicketResponse
 from backend.app.ai.triage import run_ai_triage
+from backend.app.tickets.models import TicketMessage
+from backend.app.ai.reply_generator import generate_auto_reply
+from backend.app.ai.reply_generator import generate_agent_draft
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -32,9 +35,23 @@ def create_ticket(
     db.add(new_ticket)
     db.commit()
     db.refresh(new_ticket)
+    
+    # 2️⃣ Create first message from USER
+    user_message = TicketMessage(
+        ticket_id=new_ticket.id,
+        sender_id=current_user["user_id"],
+        sender_role="USER",
+        message=ticket.description
+    )
+
+    db.add(user_message)
+    db.commit()
+
 
     # 2️⃣ Run AI Triage
     ai_data = run_ai_triage(ticket.title, ticket.description)
+    print("AI DATA:", ai_data)
+
 
     # 3️⃣ Save AI metadata
     ai_meta = TicketAIMetadata(
@@ -45,14 +62,31 @@ def create_ticket(
     db.add(ai_meta)
 
     # 4️⃣ Decision Engine
-    if ai_data["confidence"] >= 0.85 and ai_data["risk"] == "LOW":
+    # ---- DECISION ENGINE ----
+    if ai_data["confidence"] >= 0.70 and ai_data["risk"] == "LOW":
         new_ticket.status = TicketStatus.AUTO_RESOLVED
+
+        # 🔹 Generate AI reply
+        ai_reply_text = generate_auto_reply(
+            ticket.title,
+            ticket.description
+        )
+
+        # 🔹 Store AI message
+        ai_message = TicketMessage(
+            ticket_id=new_ticket.id,
+            sender_id=None,
+            sender_role="AI",
+            message=ai_reply_text
+        )
+
+        db.add(ai_message)
+
     else:
         new_ticket.status = TicketStatus.PENDING_AGENT
 
     db.commit()
     db.refresh(new_ticket)
-
     return new_ticket
 
 
@@ -82,3 +116,26 @@ def get_all_tickets(
         .options(joinedload(Ticket.ai_metadata))
         .all()
     )
+
+@router.post("/{ticket_id}/generate-draft")
+def generate_draft_for_agent(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    # Only AGENT allowed
+    if current_user["role"] != "AGENT":
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    messages = db.query(TicketMessage).filter(
+        TicketMessage.ticket_id == ticket_id
+    ).order_by(TicketMessage.created_at.asc()).all()
+
+    draft = generate_agent_draft(ticket, messages)
+
+    return {"draft": draft}

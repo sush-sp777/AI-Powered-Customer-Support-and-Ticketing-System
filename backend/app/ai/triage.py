@@ -41,6 +41,13 @@ Rules:
 - Angry/frustrated tone → HIGH risk
 - Calm tone → LOW risk
 Return ONLY JSON. No explanation.
+
+Risk rules:
+- Simple password reset issues → LOW risk
+- Payment disputes with anger → HIGH risk
+- Security breach or fraud → HIGH risk
+- Technical bug without urgency → MEDIUM risk
+
 """
 
     user_prompt = f"""
