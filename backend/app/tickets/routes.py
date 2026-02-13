@@ -105,6 +105,24 @@ def get_my_tickets(
         .all()
     )
 
+@router.get("/agent/pending", response_model=list[TicketResponse])
+def get_pending_tickets_for_agent(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Only AGENT can access
+    if current_user.role != "AGENT":
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    tickets = (
+        db.query(Ticket)
+        .options(joinedload(Ticket.ai_metadata))
+        .filter(Ticket.status == TicketStatus.PENDING_AGENT)
+        .all()
+    )
+
+    return tickets
+
 @router.post("/{ticket_id}/generate-draft")
 def generate_draft_for_agent(
     ticket_id: int,
@@ -167,24 +185,29 @@ def reply_to_ticket(
 
     return {"message": "Reply added successfully"}
 
-@router.get("/agent/pending", response_model=list[TicketResponse])
-def get_pending_tickets_for_agent(
+@router.get("/{ticket_id}/messages")
+def get_ticket_messages(
+    ticket_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Only AGENT can access
-    if current_user.role != "AGENT":
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # USER can only see own tickets
+    if current_user.role == "USER" and ticket.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    tickets = (
-        db.query(Ticket)
-        .options(joinedload(Ticket.ai_metadata))
-        .filter(Ticket.status == TicketStatus.PENDING_AGENT)
+    messages = (
+        db.query(TicketMessage)
+        .filter(TicketMessage.ticket_id == ticket_id)
+        .order_by(TicketMessage.created_at.asc())
         .all()
     )
 
-    return tickets
-
+    return messages
 
 @router.post("/{ticket_id}/close")
 def close_ticket(
