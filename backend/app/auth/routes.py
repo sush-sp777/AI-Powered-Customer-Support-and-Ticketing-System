@@ -44,7 +44,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
     return {
     "access_token": token,
-    "token_type": "bearer"
+    "token_type": "bearer",
+    "role":db_user.role
 }
 
 from backend.app.auth.dependencies import get_current_user, require_role
