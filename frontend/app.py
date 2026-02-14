@@ -3,11 +3,15 @@ import requests
 
 BASE_URL = "http://localhost:8000"
 
-st.set_page_config(page_title="AI Support System", layout="centered")
+st.set_page_config(
+    page_title="SupportIQ",
+    page_icon="🤖",
+    layout="centered"
+)
 
-# -----------------------
-# Session State
-# -----------------------
+# =====================================================
+# SESSION STATE
+# =====================================================
 if "token" not in st.session_state:
     st.session_state.token = None
 
@@ -20,16 +24,14 @@ if "selected_ticket" not in st.session_state:
 if "agent_draft" not in st.session_state:
     st.session_state.agent_draft = ""
 
-
-# -----------------------
-# Helper Functions
-# -----------------------
+# =====================================================
+# API FUNCTIONS
+# =====================================================
 def register_request(email, password):
     return requests.post(
         f"{BASE_URL}/auth/register",
         json={"email": email, "password": password}
     )
-
 
 def login_request(email, password):
     return requests.post(
@@ -37,262 +39,223 @@ def login_request(email, password):
         data={"username": email, "password": password}
     )
 
-
 def auth_headers():
     return {"Authorization": f"Bearer {st.session_state.token}"}
 
-
+# =====================================================
+# UI HELPERS
+# =====================================================
 def status_badge(status):
     colors = {
-        "OPEN": "blue",
-        "PENDING_AGENT": "red",
-        "WAITING_FOR_USER": "orange",
-        "AUTO_RESOLVED": "green",
-        "CLOSED": "gray"
+        "OPEN": "#1f77b4",
+        "PENDING_AGENT": "#d62728",
+        "WAITING_FOR_USER": "#ff7f0e",
+        "AUTO_RESOLVED": "#2ca02c",
+        "CLOSED": "#7f7f7f"
     }
-    color = colors.get(status, "black")
-    return f"<span style='color:{color}; font-weight:bold'>{status}</span>"
+    return f"<span style='color:{colors.get(status,'black')};font-weight:600'>{status}</span>"
 
+def render_message(role, message):
+    if role == "USER":
+        label = "User"
+    elif role == "AGENT":
+        label = "Agent"
+    else:
+        label = "AI"
 
-# -----------------------
-# UI Start
-# -----------------------
-st.title("🤖 AI Customer Support System")
+    st.markdown(f"**{label}:** {message}")
 
-# =========================
+def urgency_score(ticket):
+    score = 0
+
+    if ticket.get("priority") == "HIGH":
+        score += 5
+
+    meta = ticket.get("ai_metadata") or {}
+    sentiment = str(meta.get("sentiment","")).lower()
+    confidence = meta.get("confidence",0)
+
+    if sentiment == "negative":
+        score += 3 * confidence
+
+    return score
+
+def escalation_reason(ticket):
+    meta = ticket.get("ai_metadata") or {}
+    sentiment = meta.get("sentiment")
+    risk = meta.get("risk")
+    priority = ticket.get("priority")
+
+    reasons = []
+    if priority == "HIGH":
+        reasons.append("high priority")
+    if sentiment == "negative":
+        reasons.append("negative sentiment")
+    if risk == "HIGH":
+        reasons.append("risk detected")
+
+    if reasons:
+        return "Escalation: " + ", ".join(reasons)
+    return None
+
+# =====================================================
+# HEADER
+# =====================================================
+st.markdown("<h2 style='text-align:center;'>SupportIQ — AI Assisted Helpdesk</h2>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;color:gray;'>Internal Support Dashboard</p>", unsafe_allow_html=True)
+st.divider()
+
+# =====================================================
 # NOT LOGGED IN
-# =========================
+# =====================================================
 if st.session_state.token is None:
 
     tab1, tab2 = st.tabs(["Login", "Register"])
 
     with tab1:
-        st.subheader("Login")
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
 
-        if st.button("Login"):
-            response = login_request(email, password)
-            if response.status_code == 200:
-                data = response.json()
+        if st.button("Login", use_container_width=True):
+            r = login_request(email, password)
+            if r.status_code == 200:
+                data = r.json()
                 st.session_state.token = data["access_token"]
                 st.session_state.role = data["role"]
-                st.success("Login successful")
                 st.rerun()
             else:
                 st.error("Invalid credentials")
 
     with tab2:
-        st.subheader("Create Account")
         email = st.text_input("Email", key="reg_email")
         password = st.text_input("Password", type="password", key="reg_pass")
 
-        if st.button("Register"):
-            response = register_request(email, password)
-            if response.status_code in [200, 201]:
+        if st.button("Create Account", use_container_width=True):
+            r = register_request(email, password)
+            if r.status_code in [200,201]:
                 st.success("Account created. Please login.")
             else:
-                st.error("Registration failed.")
+                st.error("Registration failed")
 
-# =========================
+# =====================================================
 # LOGGED IN
-# =========================
+# =====================================================
 else:
 
-    col1, col2 = st.columns([8, 2])
+    col1, col2 = st.columns([8,2])
 
     with col1:
         st.success(f"Logged in as {st.session_state.role}")
 
     with col2:
         if st.button("Logout"):
-            st.session_state.token = None
-            st.session_state.role = None
-            st.session_state.selected_ticket = None
-            st.session_state.agent_draft = ""
+            st.session_state.token=None
+            st.session_state.role=None
+            st.session_state.selected_ticket=None
+            st.session_state.agent_draft=""
             st.rerun()
 
     st.divider()
 
-    # =====================================
+    # =====================================================
     # USER DASHBOARD
-    # =====================================
+    # =====================================================
     if st.session_state.role == "USER":
 
-        st.header("User Dashboard")
+        st.subheader("Create Ticket")
+        title = st.text_input("Title")
+        desc = st.text_area("Describe issue")
 
-        # Create Ticket
-        st.subheader("Create New Ticket")
-        title = st.text_input("Ticket Title")
-        description = st.text_area("Describe your issue")
-
-        if st.button("Submit Ticket"):
-            response = requests.post(
-                f"{BASE_URL}/tickets/",
-                headers=auth_headers(),
-                json={"title": title, "description": description}
-            )
-            if response.status_code == 200:
-                st.success("Ticket created!")
+        if st.button("Submit"):
+            r = requests.post(f"{BASE_URL}/tickets/",headers=auth_headers(),
+                              json={"title":title,"description":desc})
+            if r.status_code==200:
+                st.success("Ticket created")
                 st.rerun()
-            else:
-                st.error("Failed to create ticket")
 
         st.divider()
-
-        # My Tickets
         st.subheader("My Tickets")
 
-        response = requests.get(
-            f"{BASE_URL}/tickets/my",
-            headers=auth_headers()
-        )
+        r = requests.get(f"{BASE_URL}/tickets/my",headers=auth_headers())
+        if r.status_code==200:
+            tickets=r.json()
 
-        if response.status_code == 200:
-            tickets = response.json()
+            for t in tickets:
+                st.markdown(f"**{t['title']}** — {status_badge(t['status'])}",unsafe_allow_html=True)
 
-            for ticket in tickets:
-                st.write(f"### {ticket['title']}")
-                st.markdown(
-                    f"Status: {status_badge(ticket['status'])}",
-                    unsafe_allow_html=True
-                )
-
-                if st.button(f"Open Ticket {ticket['id']}"):
-                    st.session_state.selected_ticket = ticket["id"]
+                if st.button(f"Open #{t['id']}"):
+                    st.session_state.selected_ticket=t["id"]
                     st.rerun()
 
-                st.write("---")
+                st.markdown("---")
 
-        # Ticket Conversation
         if st.session_state.selected_ticket:
+            tid=st.session_state.selected_ticket
+            st.subheader(f"Conversation #{tid}")
 
-            ticket_id = st.session_state.selected_ticket
-            st.subheader(f"Conversation (Ticket {ticket_id})")
+            msgs=requests.get(f"{BASE_URL}/tickets/{tid}/messages",headers=auth_headers()).json()
+            for m in msgs:
+                render_message(m["sender_role"],m["message"])
 
-            msg_response = requests.get(
-                f"{BASE_URL}/tickets/{ticket_id}/messages",
-                headers=auth_headers()
-            )
+            reply=st.text_area("Reply")
 
-            if msg_response.status_code == 200:
-                messages = msg_response.json()
+            if st.button("Send"):
+                requests.post(f"{BASE_URL}/tickets/{tid}/reply",headers=auth_headers(),json={"message":reply})
+                st.rerun()
 
-                for msg in messages:
-                    st.write(f"**{msg['sender_role']}**: {msg['message']}")
+            if st.button("Close Ticket"):
+                requests.post(f"{BASE_URL}/tickets/{tid}/close",headers=auth_headers())
+                st.session_state.selected_ticket=None
+                st.rerun()
 
-                st.divider()
-
-                reply = st.text_area("Reply")
-
-                if st.button("Send Reply"):
-                    requests.post(
-                        f"{BASE_URL}/tickets/{ticket_id}/reply",
-                        headers=auth_headers(),
-                        json={"message": reply}
-                    )
-                    st.success("Reply sent")
-                    st.rerun()
-
-                if st.button("Close Ticket"):
-                    requests.post(
-                        f"{BASE_URL}/tickets/{ticket_id}/close",
-                        headers=auth_headers()
-                    )
-                    st.success("Ticket closed")
-                    st.session_state.selected_ticket = None
-                    st.rerun()
-
-    # =====================================
+    # =====================================================
     # AGENT DASHBOARD
-    # =====================================
-    elif st.session_state.role == "AGENT":
+    # =====================================================
+    else:
 
-        st.header("Agent Dashboard")
+        st.subheader("Pending Tickets")
 
-        response = requests.get(
-            f"{BASE_URL}/tickets/agent/pending",
-            headers=auth_headers()
-        )
+        r=requests.get(f"{BASE_URL}/tickets/agent/pending",headers=auth_headers())
+        if r.status_code==200:
+            tickets=r.json()
 
-        if response.status_code == 200:
-            tickets = response.json()
+            tickets.sort(key=urgency_score,reverse=True)
 
-            # Metrics
-            total_pending = len(tickets)
-            high_priority = len(
-                [t for t in tickets if t["priority"] == "HIGH"]
-            )
+            for t in tickets:
 
-            col1, col2 = st.columns(2)
-            col1.metric("Pending Tickets", total_pending)
-            col2.metric("High Priority", high_priority)
+                meta=t.get("ai_metadata") or {}
+                sentiment=meta.get("sentiment","-")
+                confidence=round(meta.get("confidence",0),2)
 
-            st.divider()
+                st.markdown(f"**{t['title']}** — {status_badge(t['status'])}",unsafe_allow_html=True)
+                st.write(f"Priority: {t['priority']} | Category: {t['category']} | Sentiment: {sentiment} ({confidence})")
 
-            for ticket in tickets:
-                st.write(f"### {ticket['title']}")
-                st.markdown(
-                    f"Status: {status_badge(ticket['status'])}",
-                    unsafe_allow_html=True
-                )
-                st.write(f"Priority: {ticket['priority']}")
-                st.write(f"Category: {ticket['category']}")
+                reason=escalation_reason(t)
+                if reason:
+                    st.warning(reason)
 
-                # AI Metadata
-                if ticket.get("ai_metadata"):
-                    meta = ticket["ai_metadata"]
-                    st.write(f"Sentiment: {meta.get('sentiment')}")
-                    st.write(f"Risk: {meta.get('risk')}")
-                    st.write(
-                        f"Confidence: {round(meta.get('confidence', 0), 2)}"
-                    )
-
-                if st.button(f"Open Ticket {ticket['id']}"):
-                    st.session_state.selected_ticket = ticket["id"]
+                if st.button(f"Open #{t['id']}"):
+                    st.session_state.selected_ticket=t["id"]
                     st.rerun()
 
-                st.write("---")
+                st.markdown("---")
 
-        # Ticket Conversation (Agent)
         if st.session_state.selected_ticket:
+            tid=st.session_state.selected_ticket
+            st.subheader(f"Conversation #{tid}")
 
-            ticket_id = st.session_state.selected_ticket
-            st.subheader(f"Conversation (Ticket {ticket_id})")
+            msgs=requests.get(f"{BASE_URL}/tickets/{tid}/messages",headers=auth_headers()).json()
+            for m in msgs:
+                render_message(m["sender_role"],m["message"])
 
-            msg_response = requests.get(
-                f"{BASE_URL}/tickets/{ticket_id}/messages",
-                headers=auth_headers()
-            )
+            if st.button("Generate AI Draft"):
+                d=requests.post(f"{BASE_URL}/tickets/{tid}/generate-draft",headers=auth_headers())
+                if d.status_code==200:
+                    st.session_state.agent_draft=d.json()["draft"]
 
-            if msg_response.status_code == 200:
-                messages = msg_response.json()
+            draft=st.text_area("Agent Reply",value=st.session_state.agent_draft,height=150)
 
-                for msg in messages:
-                    st.write(f"**{msg['sender_role']}**: {msg['message']}")
-
-                st.divider()
-
-                # Generate AI Draft
-                if st.button("Generate AI Draft"):
-                    draft_response = requests.post(
-                        f"{BASE_URL}/tickets/{ticket_id}/generate-draft",
-                        headers=auth_headers()
-                    )
-                    if draft_response.status_code == 200:
-                        st.session_state.agent_draft = draft_response.json()["draft"]
-
-                draft_text = st.text_area(
-                    "Agent Reply",
-                    value=st.session_state.agent_draft
-                )
-
-                if st.button("Send Reply"):
-                    requests.post(
-                        f"{BASE_URL}/tickets/{ticket_id}/reply",
-                        headers=auth_headers(),
-                        json={"message": draft_text}
-                    )
-                    st.session_state.agent_draft = ""
-                    st.success("Reply sent")
-                    st.rerun()
+            if st.button("Send Reply"):
+                requests.post(f"{BASE_URL}/tickets/{tid}/reply",headers=auth_headers(),json={"message":draft})
+                st.session_state.agent_draft=""
+                st.rerun()
