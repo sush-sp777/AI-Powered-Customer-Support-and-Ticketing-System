@@ -24,22 +24,33 @@ from backend.app.ai.reply_generator import (
     generate_agent_draft
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
+
 
 @router.post("/", response_model=TicketResponse)
 def create_ticket(
     ticket: TicketCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
-    # 1️⃣ Run AI Triage FIRST
+    current_user: User = Depends(get_current_user)
+):
+
+    # 1️⃣ Run AI Triage
     ai_data = run_ai_triage(ticket.title, ticket.description)
 
-    # 2️⃣ Create Ticket WITH AI category & priority
+    # Log decision inputs
+    logger.info(
+        f"DECISION ENGINE → confidence={ai_data['confidence']} | risk={ai_data['risk']}"
+    )
+
+    # 2️⃣ Create Ticket
     new_ticket = Ticket(
         title=ticket.title,
         description=ticket.description,
-        category=ai_data["category"],      # ✅ FIX
-        priority=ai_data["priority"],      # ✅ FIX
+        category=ai_data["category"],
+        priority=ai_data["priority"],
         status=TicketStatus.OPEN,
         created_by=current_user.id
     )
@@ -71,7 +82,10 @@ def create_ticket(
 
     # 5️⃣ Decision Engine
     if ai_data["confidence"] >= 0.70 and ai_data["risk"] == "LOW":
+
         new_ticket.status = TicketStatus.AUTO_RESOLVED
+
+        logger.info(f"TICKET {new_ticket.id} AUTO_RESOLVED")
 
         ai_reply_text = generate_auto_reply(
             ticket.title,
@@ -89,15 +103,19 @@ def create_ticket(
 
     else:
         new_ticket.status = TicketStatus.PENDING_AGENT
+        logger.info(f"TICKET {new_ticket.id} ROUTED_TO_AGENT")
 
     db.commit()
     db.refresh(new_ticket)
 
     return new_ticket
+
+
 @router.get("/my", response_model=list[TicketResponse])
 def get_my_tickets(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(get_current_user)
+):
     return (
         db.query(Ticket)
         .options(joinedload(Ticket.ai_metadata))
@@ -105,12 +123,13 @@ def get_my_tickets(
         .all()
     )
 
+
 @router.get("/agent/pending", response_model=list[TicketResponse])
 def get_pending_tickets_for_agent(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Only AGENT can access
+
     if current_user.role != "AGENT":
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -123,11 +142,14 @@ def get_pending_tickets_for_agent(
 
     return tickets
 
+
 @router.post("/{ticket_id}/generate-draft")
 def generate_draft_for_agent(
     ticket_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(get_current_user)
+):
+
     if current_user.role != "AGENT":
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -144,14 +166,19 @@ def generate_draft_for_agent(
 
     draft = generate_agent_draft(ticket, messages)
 
+    logger.info(f"AI DRAFT GENERATED → Ticket {ticket_id}")
+
     return {"draft": draft}
+
 
 @router.post("/{ticket_id}/reply")
 def reply_to_ticket(
     ticket_id: int,
     reply: TicketReply,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(get_current_user)
+):
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -185,18 +212,19 @@ def reply_to_ticket(
 
     return {"message": "Reply added successfully"}
 
+
 @router.get("/{ticket_id}/messages")
 def get_ticket_messages(
     ticket_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    # USER can only see own tickets
     if current_user.role == "USER" and ticket.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -209,11 +237,14 @@ def get_ticket_messages(
 
     return messages
 
+
 @router.post("/{ticket_id}/close")
 def close_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(get_current_user)
+):
+
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")

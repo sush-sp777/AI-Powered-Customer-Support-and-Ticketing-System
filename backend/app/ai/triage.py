@@ -5,6 +5,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from dotenv import load_dotenv
 load_dotenv()
 import re
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Initialize LLM
 llm = ChatGroq(
@@ -83,6 +86,8 @@ Description: {description}
 
     try:
         parsed = json.loads(json_text)
+        logger.info(f"AI TRIAGE RESULT → {parsed}")
+
         return parsed
     except json.JSONDecodeError:
         return fallback_response()
