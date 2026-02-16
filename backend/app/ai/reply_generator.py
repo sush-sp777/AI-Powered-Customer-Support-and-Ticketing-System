@@ -118,6 +118,10 @@ Output Requirements:
 - Actionable next steps
 - No mention of AI
 - Optimized for human agent to send
+- Never mention about draft, like here is a reply
+
+Never mention you are an AI.
+Keep response concise but helpful.
 """
 
     user_prompt = f"""
