@@ -210,9 +210,9 @@ https://github.com/user-attachments/assets/330ea0fd-4944-4c94-95a6-19b27ee8a71c
 
 ## 📸 Screenshots
 
-```scss
-![User Dashboard](./screenshots/user_dashboard.png)
-```
+<img width="1366" height="631" alt="user-create-ticket" src="https://github.com/user-attachments/assets/b157f53a-9969-4dc1-8e58-181dafe23c6e" />
+<img width="1366" height="631" alt="agent-queue" src="https://github.com/user-attachments/assets/15cd4785-81f3-41da-b09c-b5cc6d9bab03" />
+<img width="1366" height="627" alt="ai-draft" src="https://github.com/user-attachments/assets/2ba40456-a75d-4350-9831-c2290461b278" />
 
 ---
 
